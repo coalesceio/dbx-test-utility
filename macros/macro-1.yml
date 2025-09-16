@@ -1,0 +1,1500 @@
+fileVersion: 1
+id: "1"
+macroString: |-
+  {%- macro expect_column_to_exist(columnName) -%}
+      {%- set columnName = columnName-%}
+      {%- set columnId = columns | selectattr('name','equalto',columnName) | map(attribute='id') | first -%}
+      select '{{columnName}}' where '{{columnId}}' = ''
+  {%- endmacro %}
+
+  {%- macro expect_table_row_count_to_equal( numberOfRecordExpected, group_by = None, filterCondition = None) -%}
+      {%- set numberOfRecordExpected = numberOfRecordExpected-%}
+      {%- set filterCondition = filterCondition-%}
+      select * from (
+          select count(*) numberOfRecordActual  from {{this}}  
+              {%- if filterCondition %}
+                  Where {{filterCondition}}
+              {%- endif -%}
+              {%- if group_by %}
+                  GROUP BY "{{ group_by | join('", "') }}"
+              {%- endif -%}  
+      ) table1 where numberOfRecordActual != {{numberOfRecordExpected}} 
+  {%- endmacro %}
+
+
+  {%- macro expect_table_row_count_to_equal_other_table( comparing_tableName, group_by_t1 = None, group_by_t2 = None,  filterCondition_t1 = None, filterCondition_t2 = None, factor = None) -%}
+      {%- set comparing_tableName = comparing_tableName-%}
+      {%- set filterCondition_t1 = filterCondition_t1-%}
+      {%- set filterCondition_t2 = filterCondition_t2-%}
+      {%- set factor = factor-%}
+      select * from (
+          select count(*) t1numberOfRecord  from {{this}}  
+              {%- if filterCondition_t1 %}
+                  Where {{filterCondition_t1}}
+              {%- endif -%}
+              {%- if group_by_t1 %}
+                  GROUP BY "{{ group_by_t1 | join('", "') }}"
+              {%- endif -%} 
+      ) table1
+      join (
+          select count(*) t2numberOfRecord  from {{comparing_tableName}}  
+              {%- if filterCondition_t2 %}
+                  Where {{filterCondition_t2}}
+              {%- endif -%}
+              {%- if group_by_t2 %}
+                  GROUP BY "{{ group_by_t2 | join('", "') }}"
+              {%- endif -%} 
+      ) table2
+      on table1.t1numberOfRecord != table2.t2numberOfRecord {% if factor %} * {{factor}}  {% endif -%}
+  {%- endmacro -%}
+
+
+  {%- macro expect_table_row_count_to_equal_other_table_times_factor( comparing_tableName,  group_by_t1 = None, group_by_t2 = None, filterCondition_t1 = None, filterCondition_t2 = None, factor = None) -%}
+      {%- set comparing_tableName = comparing_tableName-%}
+      {%- set filterCondition_t1 = filterCondition_t1-%}
+      {%- set filterCondition_t2 = filterCondition_t2-%}
+      {%- set factor = factor-%}
+      {{expect_table_row_count_to_equal_other_table( comparing_tableName, group_by_t1, group_by_t2, filterCondition_t1, filterCondition_t2, factor)}}
+  {%- endmacro -%}
+
+
+
+  {%- macro expect_table_row_count_to_be_between( minValue , maxValue ,group_by = None, filterCondition = None) -%}
+      {%- set minValue = minValue-%}
+      {%- set maxValue = maxValue-%}
+      {%- set filterCondition = filterCondition-%}
+      select * from (
+          select count(*) numberOfRecordActual  from {{this}}  
+              {%- if filterCondition %}
+                  Where {{filterCondition}}
+              {%- endif -%}
+              {%- if group_by %}
+                  GROUP BY "{{ group_by | join('", "') }}"
+              {%- endif -%}            
+      ) table1 
+      where not numberOfRecordActual between {{minValue}} and {{maxValue}}
+  {%- endmacro %}
+
+
+  {%- macro expect_table_column_count_to_be_between( minValue , maxValue) -%}
+      {%- set minValue = minValue-%}
+      {%- set maxValue = maxValue-%}
+      {% set number_of_columns = columns | length %}
+
+      select '{{number_of_columns}}' where not {{number_of_columns}} between {{minValue}} and {{maxValue}}
+  {%- endmacro %}
+
+  {%- macro expect_table_column_count_to_equal( ExpectedCount ) -%}
+      {%- set ExpectedCount = ExpectedCount-%}
+      {% set number_of_columns = columns | length %}
+
+      select '{{number_of_columns}}' where not {{number_of_columns}} = {{ExpectedCount}}
+  {%- endmacro %}
+
+  {%- macro expect_table_columns_to_contain_set(ExpectedColumnList) -%}
+      {# Convert string into a list by splitting on commas #}
+      {%- if ExpectedColumnList is string -%}
+          {%- set ExpectedColumnList = ExpectedColumnList.split(',') | map('trim') | list -%}
+      {%- endif -%}
+
+      {# Convert both actual and expected column names to uppercase #}
+      {%- set columnName = columns | map(attribute='name') | map('upper') | list -%}
+      {%- set ExpectedColumnName = ExpectedColumnList | map('upper') | list -%}
+
+      {# Find missing columns #}
+      {%- set missing_cols = ExpectedColumnName | reject("in", columnName) | list -%}
+      {%- set missing_count = missing_cols | length -%}
+
+      {# Output valid SQL #}
+      SELECT
+          '{{ missing_cols | join(", ") }}' AS missing_columns,
+          {{ missing_count }} AS missing_count
+      WHERE {{ missing_count }} != 0
+  {%- endmacro %}
+
+  {%- macro expect_table_columns_to_not_contain_set(notExpectedColumnList) -%}
+      {# Convert string into list if needed #}
+      {%- if notExpectedColumnList is string -%}
+          {%- set notExpectedColumnList = notExpectedColumnList.split(',') | map('trim') | list -%}
+      {%- endif -%}
+
+      {# Convert both actual and not-expected column names to uppercase #}
+      {%- set columnName = columns | map(attribute='name') | map('upper') | list -%}
+      {%- set notExpectedColumnName = notExpectedColumnList | map('upper') | list -%}
+
+      {# Find unwanted columns that are actually present #}
+      {%- set present_unwanted = notExpectedColumnName | select("in", columnName) | list -%}
+      {%- set present_count = present_unwanted | length -%}
+
+      {# Output valid SQL #}
+      SELECT
+          '{{ present_unwanted | join(", ") }}' AS present_unwanted_columns,
+          {{ present_count }} AS present_count
+      WHERE {{ present_count }} != 0
+  {%- endmacro %}
+
+  {%- macro expect_table_columns_to_match_set(ExpectedColumnList) -%}
+      {# If given a string, split into list by commas and trim spaces #}
+      {%- if ExpectedColumnList is string -%}
+          {%- set ExpectedColumnList = ExpectedColumnList.split(',') | map('trim') | list -%}
+      {%- endif -%}
+
+      {# Uppercase both actual and expected columns #}
+      {%- set columnName = columns | map(attribute='name') | map('upper') | list -%}
+      {%- set ExpectedColumnName = ExpectedColumnList | map('upper') | list -%}
+
+      {# Find missing columns #}
+      {%- set all_included = ExpectedColumnName | reject("in", columnName) | list -%}
+      {%- set result = all_included | length -%}
+
+      {# Column counts #}
+      {%- set numberOfColumnInTable = columnName | length -%}
+      {%- set numberOfColumnInGivenList = ExpectedColumnName | length -%}
+
+      {# Final SQL — keeping your original structure #}
+      select '{{ all_included | join(", ") }}'
+      where not ( {{ result }} = 0 and {{ numberOfColumnInTable }} = {{ numberOfColumnInGivenList }} )
+  {%- endmacro %}
+
+  {%- macro expect_row_values_to_have_recent_data(columnName, datePart_, interval_, row_condition=None) -%}
+      {%- set filterCondition = row_condition -%}
+
+      {# Expected record count: number of rows where column is within given date range #}
+      {%- set numberOfRecordExpected = "select count(*) from " ~ this ~ 
+          " where " ~ columnName ~ " >= date_add(current_date, -" ~ interval_ ~ ", '" ~ datePart_ ~ "')" -%}
+
+      select * from (
+          select count(*) as numberOfRecordActual  
+          from {{ this }}
+          where {{ columnName }} >= date_add(current_date, -{{ interval_ }}, '{{ datePart_ }}')
+          {%- if filterCondition %}
+              and {{ filterCondition }}
+          {%- endif -%}
+      ) table1
+      where numberOfRecordActual != ( {{ numberOfRecordExpected }} )
+  {%- endmacro %}
+
+  {%- macro expect_table_columns_to_be_same_as_other_table(comparing_tableName) -%}
+      {# Get current table details #}
+      {% set srcSchName = node.location.name %}
+      {% set table_catalog1 = storageLocations | selectattr('name', 'equalto', srcSchName) | map(attribute='database') | first %}
+      {% set table_schema1 = storageLocations | selectattr('name', 'equalto', srcSchName) | map(attribute='schema') | first %}
+      {% set table_name1 = node.name %}
+
+      {# Split the comparing table into catalog, schema, table #}
+      {% set part2 = comparing_tableName.split('.') | map('trim') | list %}
+      {% set table_catalog2 = part2[0] %}
+      {% set table_schema2 = part2[1] %}
+      {% set table_name2 = part2[2] %}
+
+      WITH table1_columns AS (
+          SELECT UPPER(column_name) AS column_name, UPPER(data_type) AS data_type
+          FROM system.information_schema.columns
+          WHERE UPPER(table_catalog) = UPPER('{{ table_catalog1 }}')
+            AND UPPER(table_schema) = UPPER('{{ table_schema1 }}')
+            AND UPPER(table_name) = UPPER('{{ table_name1 }}')
+      ),
+      table2_columns AS (
+          SELECT UPPER(column_name) AS column_name, UPPER(data_type) AS data_type
+          FROM system.information_schema.columns
+          WHERE UPPER(table_catalog) = UPPER('{{ table_catalog2 }}')
+            AND UPPER(table_schema) = UPPER('{{ table_schema2 }}')
+            AND UPPER(table_name) = UPPER('{{ table_name2 }}')
+      ),
+      diff AS (
+          SELECT column_name, data_type, 'Only in Table1' AS location
+          FROM table1_columns
+          WHERE (column_name, data_type) NOT IN (SELECT column_name, data_type FROM table2_columns)
+          
+          UNION ALL
+          
+          SELECT column_name, data_type, 'Only in Table2' AS location
+          FROM table2_columns
+          WHERE (column_name, data_type) NOT IN (SELECT column_name, data_type FROM table1_columns)
+      )
+      SELECT * FROM diff
+  {%- endmacro %}
+
+
+  {%- macro expect_table_column_count_to_equal_other_table(comparing_tableName) -%}
+      {% set srcSchName = node.location.name %}
+      {% set table_catalog1 = storageLocations | selectattr('name', 'equalto', srcSchName) | map(attribute='database') | first %}
+      {% set table_schema1 = storageLocations | selectattr('name', 'equalto', srcSchName) | map(attribute='schema') | first %}
+      {% set table_name1 = node.name %}
+
+      {%- set comparing_tableName = comparing_tableName.replace('"', '') -%}
+      {% set part2 = comparing_tableName.split('.') %}
+      {% set table_catalog2 = part2[0] %}
+      {% set table_schema2 = part2[1] %}
+      {% set table_name2 = part2[2] %}
+
+      select *
+      from (
+          SELECT count(column_name) as t1numberOfColumn
+          FROM {{table_catalog1}}.information_schema.columns
+          WHERE lower(table_catalog) = lower('{{table_catalog1}}')
+            AND lower(table_schema) = lower('{{table_schema1}}')
+            AND lower(table_name) = lower('{{table_name1}}')
+      ) table1
+      join (
+          SELECT count(column_name) as t2numberOfColumn
+          FROM {{table_catalog2}}.information_schema.columns
+          WHERE lower(table_catalog) = lower('{{table_catalog2}}')
+            AND lower(table_schema) = lower('{{table_schema2}}')
+            AND lower(table_name) = lower('{{table_name2}}')
+      ) table2
+        on table1.t1numberOfColumn != table2.t2numberOfColumn
+  {%- endmacro %}
+
+  {%- macro expect_column_values_to_be_of_type(columnName, dataType) -%}
+      {%- set colType = columns | selectattr('name', 'equalto', columnName) | map(attribute='dataType') | first | lower %}
+      select '{{ columnName }}' where '{{ colType }}' != '{{ dataType | lower }}'
+  {%- endmacro %}
+
+  {%- macro expect_column_values_to_be_in_type_list(columnName, dataTypeInput) -%}
+      {%- if dataTypeInput is string %}
+          {%- set dataTypeList = dataTypeInput.split(',') | map('trim') | map('upper') | list -%}
+      {%- else %}
+          {%- set dataTypeList = dataTypeInput | map('upper') | list -%}
+      {%- endif %}
+      {%- set dataTypeStr = "('" + dataTypeList | join("', '") + "')" -%}
+      {%- set columnDataType = columns | selectattr('name','equalto',columnName) | map(attribute='dataType') | first | upper -%}
+      select '{{ columnName }}' where not '{{ columnDataType }}' in {{ dataTypeStr }}
+  {%- endmacro %}
+
+  {%- macro expect_column_value_lengths_to_equal(columnName, rowsValueLength, filterCondition=None) -%}
+      SELECT * FROM {{ this }}
+      WHERE LENGTH(`{{ columnName }}`) != {{ rowsValueLength }}
+      {%- if filterCondition %}
+          AND {{ filterCondition }}
+      {%- endif %}
+  {%- endmacro %}
+
+  {%- macro expect_column_value_lengths_to_be_between(columnName, minLength, maxLength, filterCondition=None) -%}
+      SELECT * FROM {{ this }}
+      WHERE NOT LENGTH(`{{ columnName }}`) BETWEEN {{ minLength }} AND {{ maxLength }}
+      {%- if filterCondition %}
+          AND {{ filterCondition }}
+      {%- endif %}
+  {%- endmacro %}
+
+  {%- macro expect_column_values_to_match_regex(columnName, regex, filterCondition=None) -%} 
+      SELECT * FROM {{ this }}
+      WHERE
+        {%- if filterCondition %}
+          {{ filterCondition }} AND
+        {%- endif %}
+        regexp_instr(`{{ columnName }}`, '{{ regex }}') = 0
+  {%- endmacro %}
+
+  {%- macro expect_column_values_to_not_match_regex(columnName, regex, filterCondition=None) -%} 
+      SELECT * FROM {{ this }}
+      WHERE
+        {%- if filterCondition %}
+          {{ filterCondition }} AND
+        {%- endif %}
+        NOT regexp_instr(`{{ columnName }}`, '{{ regex }}') = 0
+  {%- endmacro %}
+
+  {%- macro expect_column_values_to_match_regex_list(columnName, regexList, matchType='all') -%}
+      SELECT * FROM {{ this }}
+      WHERE
+        (
+          {%- for regex in regexList %}
+            regexp_instr(`{{ columnName }}`, '{{ regex }}') = 0
+            {%- if not loop.last %}
+              {{ " AND " if matchType == 'all' else " OR " }}
+            {%- endif %}
+          {%- endfor %}
+        )
+  {%- endmacro %}
+
+  {%- macro expect_column_values_to_not_match_regex_list(columnName, regexList, matchType='all') -%} 
+      SELECT * FROM {{ this }}
+      WHERE
+        (
+          {%- for regex in regexList %}
+            NOT regexp_instr(`{{ columnName }}`, '{{ regex }}') = 0
+            {%- if not loop.last %}
+              {{ " AND " if matchType == 'all' else " OR " }}
+            {%- endif %}
+          {%- endfor %}
+        )
+  {%- endmacro %}
+
+
+  {%- macro expect_column_distinct_count_to_be_greater_than(columnName, expectedCount, group_by=None, filterCondition=None) -%}
+      SELECT 1 FROM (
+          SELECT COUNT(DISTINCT `{{ columnName }}`) AS distinctCount 
+          FROM {{ this }}
+          {%- if filterCondition %}
+              WHERE {{ filterCondition }}
+          {%- endif %}
+
+          {%- if group_by %}
+              GROUP BY {{ group_by | map('quote') | join(', ') }}
+          {%- endif %}
+      ) AS countCheck
+      WHERE NOT countCheck.distinctCount > {{ expectedCount }}
+  {%- endmacro %}
+
+  {%- macro expect_column_distinct_count_to_be_less_than(columnName, expectedCount, group_by=None, filterCondition=None) -%}
+      SELECT 1 FROM (
+          SELECT COUNT(DISTINCT `{{ columnName }}`) AS distinctCount 
+          FROM {{ this }}
+          {%- if filterCondition %}
+              WHERE {{ filterCondition }}
+          {%- endif %}
+
+          {%- if group_by %}
+              GROUP BY {{ group_by | map('quote') | join(', ') }}
+          {%- endif %}
+      ) AS countCheck
+      WHERE NOT countCheck.distinctCount < {{ expectedCount }}
+  {%- endmacro %}
+
+  {%- macro expect_column_distinct_count_to_equal(columnName, expectedCount, group_by=None, filterCondition=None) -%}
+      SELECT 1 FROM (
+          SELECT COUNT(DISTINCT `{{ columnName }}`) AS distinctCount 
+          FROM {{ this }}
+          {%- if filterCondition %}
+              WHERE {{ filterCondition }}
+          {%- endif %}
+
+          {%- if group_by %}
+              GROUP BY {{ group_by | map('quote') | join(', ') }}
+          {%- endif %}
+      ) AS countCheck
+      WHERE NOT countCheck.distinctCount = {{ expectedCount }}
+  {%- endmacro %}
+
+  {%- macro expect_column_distinct_count_to_equal_other_table(
+      columnName,
+      otherTableName,
+      otherColumnName,
+      filterCondition_t1=None,
+      filterCondition_t2=None
+  ) -%}
+
+  SELECT 1
+  FROM (
+      SELECT 
+          (
+              SELECT COUNT(DISTINCT {{ columnName }})
+              FROM {{ this }}
+              {%- if filterCondition_t1 %}
+                  WHERE {{ filterCondition_t1 }}
+              {%- endif %}
+          ) AS count1,
+          (
+              SELECT COUNT(DISTINCT {{ otherColumnName }})
+              FROM {{ otherTableName }}
+              {%- if filterCondition_t2 %}
+                  WHERE {{ filterCondition_t2 }}
+              {%- endif %}
+          ) AS count2
+  ) AS counts
+  WHERE NOT counts.count1 = counts.count2
+
+  {%- endmacro %}
+
+  {%- macro expect_column_distinct_values_to_equal_set(columnName, expectedValueList, filterCondition=None) -%}
+
+  -- Values in the column that are NOT in the expected list
+  SELECT DISTINCT {{ columnName }}
+  FROM {{ this }}
+  WHERE {{ columnName }} NOT IN ('{{ expectedValueList | join("', '") }}')
+  {%- if filterCondition %}
+    AND {{ filterCondition }}
+  {%- endif %}
+
+  UNION ALL
+
+  -- Expected values missing from the column
+  {%- for value in expectedValueList %}
+  SELECT '{{ value }}' AS {{ columnName }}
+  WHERE '{{ value }}' NOT IN (
+    SELECT DISTINCT {{ columnName }}
+    FROM {{ this }}
+    {%- if filterCondition %}
+      WHERE {{ filterCondition }}
+    {%- endif %}
+  )
+  {%- if not loop.last %}
+  UNION ALL
+  {%- endif %}
+  {%- endfor %}
+
+  {%- endmacro %}
+
+
+  {%- macro expect_column_distinct_values_to_be_in_set(columnName, expectedValueList, filterCondition=None) -%}
+
+  SELECT DISTINCT {{ columnName }}
+  FROM {{ this }}
+  WHERE {{ columnName }} NOT IN ('{{ expectedValueList | join("', '") }}')
+  {%- if filterCondition %}
+    AND {{ filterCondition }}
+  {%- endif %}
+
+  {%- endmacro %}
+
+  {%- macro expect_column_distinct_values_to_contain_set(columnName, expectedValueList, filterCondition=None) -%}
+
+  {%- for value in expectedValueList %}
+  SELECT '{{ value }}' AS {{ columnName }}
+  WHERE '{{ value }}' NOT IN (
+      SELECT DISTINCT {{ columnName }}
+      FROM {{ this }}
+      {%- if filterCondition %}
+        WHERE {{ filterCondition }}
+      {%- endif %}
+  )
+  {%- if not loop.last %}
+  UNION ALL
+  {%- endif %}
+  {%- endfor %}
+
+  {%- endmacro %}
+
+  {%- macro expect_column_max_to_be_between(columnName, minValue, maxValue, filterCondition=None, group_by=None) -%}
+  SELECT 1
+  FROM {{ this }}
+  {%- if filterCondition %}
+    WHERE {{ filterCondition }}
+  {%- endif %}
+
+  {%- if group_by %}
+    GROUP BY
+    {%- if group_by is string %}
+      `{{ group_by }}`
+    {%- else %}
+      {%- for col in group_by %}
+        `{{ col }}`{% if not loop.last %}, {% endif %}
+      {%- endfor %}
+    {%- endif %}
+  {%- endif %}
+
+  HAVING NOT MAX({{ columnName }}) BETWEEN {{ minValue }} AND {{ maxValue }}
+  {%- endmacro %}
+
+  {%- macro expect_column_mean_to_be_between(columnName, minValue, maxValue, filterCondition=None, group_by=None) -%}
+  SELECT 1
+  FROM {{ this }}
+  {%- if filterCondition %}
+    WHERE {{ filterCondition }}
+  {%- endif %}
+
+  {%- if group_by %}
+    GROUP BY
+    {%- if group_by is string %}
+      `{{ group_by }}`
+    {%- else %}
+      {%- for col in group_by %}
+        `{{ col }}`{% if not loop.last %}, {% endif %}
+      {%- endfor %}
+    {%- endif %}
+  {%- endif %}
+
+  HAVING NOT AVG({{ columnName }}) BETWEEN {{ minValue }} AND {{ maxValue }}
+  {%- endmacro %}
+
+  {%- macro expect_column_median_to_be_between(columnName, minValue, maxValue, filterCondition=None, group_by=None) -%}
+  SELECT 1
+  FROM {{ this }}
+  {%- if filterCondition %}
+    WHERE {{ filterCondition }}
+  {%- endif %}
+
+  {%- if group_by %}
+    GROUP BY
+    {%- if group_by is string %}
+      `{{ group_by }}`
+    {%- else %}
+      {%- for col in group_by %}
+        `{{ col }}`{% if not loop.last %}, {% endif %}
+      {%- endfor %}
+    {%- endif %}
+  {%- endif %}
+
+  HAVING NOT MEDIAN({{ columnName }}) BETWEEN {{ minValue }} AND {{ maxValue }}
+  {%- endmacro %}
+
+  {%- macro expect_column_min_to_be_between(columnName, minValue, maxValue, filterCondition=None, group_by=None) -%}
+  SELECT 1
+  FROM {{ this }}
+  {%- if filterCondition %}
+    WHERE {{ filterCondition }}
+  {%- endif %}
+
+  {%- if group_by %}
+    GROUP BY
+    {%- if group_by is string %}
+      `{{ group_by }}`
+    {%- else %}
+      {%- for col in group_by %}
+        `{{ col }}`{% if not loop.last %}, {% endif %}
+      {%- endfor %}
+    {%- endif %}
+  {%- endif %}
+
+  HAVING NOT MIN({{ columnName }}) BETWEEN {{ minValue }} AND {{ maxValue }}
+  {%- endmacro %}
+
+  {%- macro expect_column_sum_to_be_between(columnName, minValue, maxValue, filterCondition=None, group_by=None) -%}
+  SELECT 1
+  FROM {{ this }}
+  {%- if filterCondition %}
+    WHERE {{ filterCondition }}
+  {%- endif %}
+
+  {%- if group_by %}
+    GROUP BY
+    {%- if group_by is string %}
+      `{{ group_by }}`
+    {%- else %}
+      {%- for col in group_by %}
+        `{{ col }}`{% if not loop.last %}, {% endif %}
+      {%- endfor %}
+    {%- endif %}
+  {%- endif %}
+
+  HAVING NOT SUM({{ columnName }}) BETWEEN {{ minValue }} AND {{ maxValue }}
+  {%- endmacro %}
+
+  {%- macro expect_column_unique_value_count_to_be_between(columnName, minValue, maxValue, filterCondition=None, group_by=None) -%}
+  SELECT 1
+  FROM {{ this }}
+  {%- if filterCondition %}
+    WHERE {{ filterCondition }}
+  {%- endif %}
+
+  {%- if group_by %}
+    GROUP BY
+    {%- if group_by is string %}
+      `{{ group_by }}`
+    {%- else %}
+      {%- for col in group_by %}
+        `{{ col }}`{% if not loop.last %}, {% endif %}
+      {%- endfor %}
+    {%- endif %}
+  {%- endif %}
+
+  HAVING NOT COUNT(DISTINCT {{ columnName }}) BETWEEN {{ minValue }} AND {{ maxValue }}
+  {%- endmacro %}
+
+
+  {%- macro expect_column_stdev_to_be_between(columnName, minValue, maxValue, filterCondition=None, group_by=None) -%}
+  SELECT 1
+  FROM {{ this }}
+  {%- if filterCondition %}
+    WHERE {{ filterCondition }}
+  {%- endif %}
+
+  {%- if group_by %}
+    GROUP BY
+    {%- if group_by is string %}
+      `{{ group_by }}`
+    {%- else %}
+      {%- for col in group_by %}
+        `{{ col }}`{% if not loop.last %}, {% endif %}
+      {%- endfor %}
+    {%- endif %}
+  {%- endif %}
+
+  HAVING NOT STDDEV({{ columnName }}) BETWEEN {{ minValue }} AND {{ maxValue }}
+  {%- endmacro %}
+
+
+  {%- macro expect_column_proportion_of_unique_values_to_be_between(columnName, minValue, maxValue, filterCondition=None, group_by=None) -%}
+  SELECT 1
+  FROM {{ this }}
+  {%- if filterCondition %}
+    WHERE {{ filterCondition }}
+  {%- endif %}
+
+  {%- if group_by %}
+    GROUP BY
+    {%- if group_by is string %}
+      `{{ group_by }}`
+    {%- else %}
+      {%- for col in group_by %}
+        `{{ col }}`{% if not loop.last %}, {% endif %}
+      {%- endfor %}
+    {%- endif %}
+  {%- endif %}
+
+  HAVING NOT COUNT(DISTINCT {{ columnName }}) / COUNT({{ columnName }}) BETWEEN {{ minValue }} AND {{ maxValue }}
+  {%- endmacro %}
+
+
+  {%- macro expect_column_quantile_values_to_be_between(columnName, quantile, minValue, maxValue, filterCondition=None, group_by=None) -%}
+  SELECT 1
+  FROM {{ this }}
+  {%- if filterCondition %}
+    WHERE {{ filterCondition }}
+  {%- endif %}
+
+  {%- if group_by %}
+    GROUP BY
+    {%- if group_by is string %}
+      `{{ group_by }}`
+    {%- else %}
+      {%- for col in group_by %}
+        `{{ col }}`{% if not loop.last %}, {% endif %}
+      {%- endfor %}
+    {%- endif %}
+  {%- endif %}
+
+  HAVING NOT APPROX_PERCENTILE({{ columnName }}, {{ quantile }}) BETWEEN {{ minValue }} AND {{ maxValue }}
+  {%- endmacro %}
+
+
+  {%- macro expect_column_values_to_be_in_set(columnName, expectedValueList, filterCondition=None) -%}
+  SELECT 1
+  FROM {{ this }}
+  WHERE {{ columnName }} NOT IN (
+      {%- for val in expectedValueList %}
+        '{{ val }}'{% if not loop.last %}, {% endif %}
+      {%- endfor %}
+  )
+  {%- if filterCondition %}
+    AND {{ filterCondition }}
+  {%- endif %}
+  {%- endmacro %}
+
+  {%- macro expect_column_values_to_not_be_in_set(columnName, expectedValueList, filterCondition=None) -%}
+  SELECT 1
+  FROM {{ this }}
+  WHERE {{ columnName }} IN (
+      {%- for val in expectedValueList %}
+        '{{ val }}'{% if not loop.last %}, {% endif %}
+      {%- endfor %}
+  )
+  {%- if filterCondition %}
+    AND {{ filterCondition }}
+  {%- endif %}
+  {%- endmacro %}
+
+  {%- macro expect_column_values_to_be_between(columnName, minValue, maxValue, filterCondition=None) -%}
+  SELECT 1 FROM {{ this }}
+  WHERE NOT {{ columnName }} BETWEEN {{ minValue }} AND {{ maxValue }}
+  {%- if filterCondition %}
+    AND {{ filterCondition }}
+  {%- endif %}
+  {%- endmacro %}
+
+
+  {% macro expect_column_values_to_be_decreasing(column_name, sort_column=None, strictly=True, filterCondition=None, group_by=None, step=None) %}
+      {%- set sort_column = sort_column if sort_column else column_name -%}
+      {%- set operator = "<" if strictly else "<=" -%}
+
+      WITH all_values AS (
+          SELECT
+              {{ '`' + sort_column + '`' }},
+              {%- if group_by %}
+                  {%- if group_by is string %}
+                      {{ '`' + group_by + '`' }},
+                  {%- else %}
+                      {{ group_by | map('regex_replace', '(.*)', '`\\1`') | join(', ') }},
+                  {%- endif %}
+              {%- endif %}
+              {{ '`' + column_name + '`' }} AS value_field
+          FROM {{ this }}
+          {%- if filterCondition %}
+              WHERE {{ filterCondition }}
+          {%- endif %}
+      ),
+      add_lag_values AS (
+          SELECT
+              {{ '`' + sort_column + '`' }},
+              {%- if group_by %}
+                  {%- if group_by is string %}
+                      {{ '`' + group_by + '`' }},
+                  {%- else %}
+                      {{ group_by | map('regex_replace', '(.*)', '`\\1`') | join(', ') }},
+                  {%- endif %}
+              {%- endif %}
+              value_field,
+              LAG(value_field) OVER (
+                  {%- if group_by %}
+                      PARTITION BY
+                      {%- if group_by is string %}
+                          {{ '`' + group_by + '`' }}
+                      {%- else %}
+                          {{ group_by | map('regex_replace', '(.*)', '`\\1`') | join(', ') }}
+                      {%- endif %}
+                      ORDER BY {{ '`' + sort_column + '`' }}
+                  {%- else %}
+                      ORDER BY {{ '`' + sort_column + '`' }}
+                  {%- endif %}
+              ) AS value_field_lag
+          FROM all_values
+      ),
+      validation_errors AS (
+          SELECT *
+          FROM add_lag_values
+          WHERE value_field_lag IS NOT NULL
+            AND NOT (
+                (value_field {{ operator }} value_field_lag)
+                {%- if step is not none %}
+                    AND ((value_field_lag - value_field) = {{ step }})
+                {%- endif %}
+            )
+      )
+      SELECT * FROM validation_errors
+  {% endmacro %}
+
+
+  {% macro expect_column_values_to_be_increasing(column_name, sort_column=None, strictly=True, filterCondition=None, group_by=None, step=None) %}
+      {%- set sort_column = sort_column if sort_column else column_name -%}
+      {%- set operator = ">" if strictly else ">=" -%}
+
+      WITH all_values AS (
+          SELECT
+              `{{ sort_column }}` AS sort_column,
+              {%- if group_by %}
+                  {%- if group_by is string %}
+                      `{{ group_by }}`,
+                  {%- else %}
+                      {%- for col in group_by %}
+                          `{{ col }}`{% if not loop.last %}, {% endif %}
+                      {%- endfor %},
+                  {%- endif %}
+              {%- endif %}
+              `{{ column_name }}` AS value_field
+          FROM {{ this }}
+          {%- if filterCondition %}
+              WHERE {{ filterCondition }}
+          {%- endif %}
+      ),
+      add_lag_values AS (
+          SELECT
+              sort_column,
+              {%- if group_by %}
+                  {%- if group_by is string %}
+                      `{{ group_by }}`,
+                  {%- else %}
+                      {%- for col in group_by %}
+                          `{{ col }}`{% if not loop.last %}, {% endif %}
+                      {%- endfor %},
+                  {%- endif %}
+              {%- endif %}
+              value_field,
+              LAG(value_field) OVER (
+                  {%- if group_by %}
+                      PARTITION BY
+                      {%- if group_by is string %}
+                          `{{ group_by }}`
+                      {%- else %}
+                          {%- for col in group_by %}
+                              `{{ col }}`{% if not loop.last %}, {% endif %}
+                          {%- endfor %}
+                      {%- endif %}
+                      ORDER BY sort_column
+                  {%- else %}
+                      ORDER BY sort_column
+                  {%- endif %}
+              ) AS value_field_lag
+          FROM all_values
+      ),
+      validation_errors AS (
+          SELECT *
+          FROM add_lag_values
+          WHERE value_field_lag IS NOT NULL
+            AND NOT (
+                (value_field {{ operator }} value_field_lag)
+                {%- if step is not none %}
+                    AND ((value_field - value_field_lag) = {{ step }})
+                {%- endif %}
+            )
+      )
+      SELECT * FROM validation_errors
+  {% endmacro %}
+
+
+  {% macro expect_column_values_to_match_like_pattern(columnName, pattern, filterCondition=None) %}
+      SELECT 1
+      FROM {{ this }}
+      WHERE `{{ columnName }}` NOT LIKE '{{ pattern }}'
+      {%- if filterCondition %}
+        AND {{ filterCondition }}
+      {%- endif %}
+  {% endmacro %}
+
+
+  {% macro expect_column_values_to_not_match_like_pattern(columnName, pattern, filterCondition=None) %}
+      SELECT 1
+      FROM {{ this }}
+      WHERE `{{ columnName }}` LIKE '{{ pattern }}'
+      {%- if filterCondition %}
+        AND {{ filterCondition }}
+      {%- endif %}
+  {% endmacro %}
+
+
+  {% macro expect_column_values_to_match_like_pattern_list(columnName, patternList, matchType='any', filterCondition=None) %}
+      SELECT 1
+      FROM {{ this }}
+      WHERE NOT (
+          {%- for pattern in patternList %}
+              `{{ columnName }}` LIKE '{{ pattern }}'
+              {%- if not loop.last %}
+                  {{ " AND " if matchType == 'all' else " OR " }}
+              {%- endif -%}
+          {%- endfor %}
+      )
+      {%- if filterCondition %}
+          AND {{ filterCondition }}
+      {%- endif %}
+  {% endmacro %}
+
+
+  {% macro expect_column_values_to_not_match_like_pattern_list(columnName, patternList, matchType='any', filterCondition=None) %}
+      SELECT 1
+      FROM {{ this }}
+      WHERE (
+          {%- for pattern in patternList %}
+              `{{ columnName }}` LIKE '{{ pattern }}'
+              {%- if not loop.last %}
+                  {{ " AND " if matchType == 'all' else " OR " }}
+              {%- endif -%}
+          {%- endfor %}
+      )
+      {%- if filterCondition %}
+          AND {{ filterCondition }}
+      {%- endif %}
+  {% endmacro %}
+
+  {% macro expect_column_pair_values_A_to_be_greater_than_B(columnNameA, columnNameB, orEqualTo=False, filterCondition=None) %}
+      {% set operator = ">=" if orEqualTo else ">" %}
+
+      SELECT 1
+      FROM {{ this }}
+      WHERE NOT (`{{ columnNameA }}` {{ operator }} `{{ columnNameB }}`)
+      {%- if filterCondition %}
+          AND {{ filterCondition }}
+      {%- endif %}
+  {% endmacro %}
+
+
+  {% macro expect_column_pair_values_to_be_equal(columnNameA, columnNameB, filterCondition=None) %}
+      SELECT 1
+      FROM {{ this }}
+      WHERE NOT (`{{ columnNameA }}` = `{{ columnNameB }}`)
+      {%- if filterCondition %}
+          AND {{ filterCondition }}
+      {%- endif %}
+  {% endmacro %}
+
+
+  {% macro expect_column_pair_values_to_be_in_set(columnNameA, columnNameB, validPairs, filterCondition=None) %}
+      SELECT 1
+      FROM {{ this }}
+      WHERE (`{{ columnNameA }}`, `{{ columnNameB }}`) NOT IN (
+          {%- for pair in validPairs %}
+              ({{ pair[0] }}, {{ pair[1] }})
+              {%- if not loop.last %}, {% endif %}
+          {%- endfor %}
+      )
+      {%- if filterCondition %}
+          AND {{ filterCondition }}
+      {%- endif %}
+  {% endmacro %}
+
+
+  {% macro expect_compound_columns_to_be_unique(columnNames, filterCondition=None) %}
+      SELECT COUNT(*) AS noOfRecords
+      FROM {{ this }}
+      WHERE 1=1
+      {%- if filterCondition %}
+          AND {{ filterCondition }}
+      {%- endif %}
+      GROUP BY
+          {%- for column in columnNames %}
+              `{{ column }}`{% if not loop.last %}, {% endif %}
+          {%- endfor %}
+      HAVING COUNT(*) > 1
+  {% endmacro %}
+
+
+  {% macro expect_multicolumn_sum_to_equal(column_list, sum_total, group_by=None, filterCondition=None) %}
+
+      {# Build SUM expressions for each column #}
+      {%- set sum_expression = [] -%}
+      {%- for column in column_list -%}
+          {%- set _ = sum_expression.append('SUM(`' ~ column ~ '`)') -%}
+      {%- endfor -%}
+      {%- set full_sum_expression = sum_expression | join(" + ") -%}
+
+      {# Detect if sum_total is numeric or a column reference #}
+      {%- set is_numeric = (sum_total | float(0)) != 0 or sum_total == "0" -%}
+      {%- if is_numeric -%}
+          {% set target_expression = sum_total -%}
+      {%- else %}
+          {% set target_expression = 'SUM(`' ~ sum_total ~ '`) ' -%}
+      {%- endif %}
+
+      {# Handle group by (string or list) #}
+      {%- set group_by_clause = "" -%}
+      {%- if group_by -%}
+          {%- if group_by is string -%}
+              {%- set group_by_clause = '`' ~ group_by ~ '`' -%}
+          {%- else -%}
+              {%- set group_by_clause = group_by | map('string') | map('trim') | join(", ") -%}
+              {%- set group_by_clause = group_by | map('string') | map('trim') | map('regex_replace', '^(.*)$', '`\\1`') | join(", ") -%}
+          {%- endif -%}
+      {%- endif %}
+
+      {# Optional row filter #}
+      {%- set row_condition_clause = "" -%}
+      {%- if filterCondition %}
+          {%- set row_condition_clause = "WHERE " ~ filterCondition -%}
+      {%- endif %}
+
+      WITH sums AS (
+          SELECT
+              {{ full_sum_expression }} AS total_sum,
+              {{ target_expression }} AS expected_sum
+              {%- if group_by %}
+              , {{ group_by_clause }}
+              {%- endif %}
+          FROM {{ this }}
+          {{ row_condition_clause }}
+          {%- if group_by %}
+          GROUP BY {{ group_by_clause }}
+          {%- endif %}
+          HAVING total_sum <> expected_sum
+      )
+      SELECT * FROM sums
+  {% endmacro %}
+
+  {% macro expect_select_column_values_to_be_unique_within_record(column_list, filterCondition=None) %}
+
+  WITH column_values AS (
+      SELECT
+          ROW_NUMBER() OVER (ORDER BY {{ column_list | map('regex_replace', '^(.*)$', '`\\1`') | join(', ') }}) AS row_index,
+          {%- for column in column_list %}
+          `{{ column }}`{% if not loop.last %}, {% endif %}
+          {%- endfor %}
+      FROM {{ this }}
+      WHERE 1=1
+      {%- if filterCondition %}
+          AND {{ filterCondition }}
+      {%- endif %}
+  ),
+  unpivot_columns AS (
+      {%- for column in column_list %}
+      SELECT 
+          row_index, 
+          '{{ column }}' AS column_name, 
+          md5(CAST(`{{ column }}` AS STRING)) AS column_value 
+      FROM column_values
+      {%- if not loop.last %}
+      UNION ALL
+      {%- endif %}
+      {%- endfor %}
+  ),
+  validation_errors AS (
+      SELECT
+          row_index,
+          COUNT(DISTINCT column_value) AS unique_values
+      FROM unpivot_columns
+      GROUP BY row_index
+      HAVING unique_values < {{ column_list | length }}
+  )
+  SELECT * FROM validation_errors
+  {% endmacro %}
+
+  {% macro expect_column_values_to_be_within_n_stdevs(column_name, group_by=None, sigma_threshold=3) %}
+      WITH metric_values AS (
+          SELECT
+              {%- if group_by %}
+                  {%- if group_by is string -%}
+                      `{{ group_by }}`,
+                  {%- else -%}
+                      {{ group_by | map('regex_replace', '^(.*)$', '`\\1`') | join(', ') }},
+                  {%- endif %}
+              {%- endif %}
+              `{{ column_name }}`,
+              AVG(`{{ column_name }}`) OVER() AS column_avg,
+              STDDEV(`{{ column_name }}`) OVER() AS column_stddev
+          FROM {{ this }}
+      ),
+      z_scores AS (
+          SELECT
+              *,
+              (`{{ column_name }}` - column_avg) / NULLIF(column_stddev, 0) AS z_score
+          FROM metric_values
+      )
+      SELECT *
+      FROM z_scores
+      WHERE ABS(z_score) > {{ sigma_threshold }}
+  {% endmacro %}
+
+  {% macro expect_column_values_to_be_within_n_moving_stdevs(
+      column_name, 
+      date_column_name, 
+      group_by=None, 
+      period='day', 
+      lookback_periods=1, 
+      trend_periods=7, 
+      test_periods=14, 
+      sigma_threshold=3, 
+      sigma_threshold_upper=None, 
+      sigma_threshold_lower=None, 
+      take_diffs=true, 
+      take_logs=true
+  ) %}
+  {%- set sigma_threshold_upper = sigma_threshold_upper if sigma_threshold_upper else sigma_threshold -%}
+  {%- set sigma_threshold_lower = sigma_threshold_lower if sigma_threshold_lower else -1 * sigma_threshold -%}
+  {%- if group_by -%}
+      {%- if group_by is string -%}
+          {%- set partition_by = 'PARTITION BY `' ~ group_by ~ '`' -%}
+      {%- else -%}
+          {%- set partition_by = 'PARTITION BY ' ~ (group_by | map('regex_replace', '^(.*)$', '`\\1`') | join(', ')) -%}
+      {%- endif -%}
+  {%- else -%}
+      {%- set partition_by = '' -%}
+  {%- endif -%}
+
+  WITH metric_values AS (
+      WITH grouped_metric_values AS (
+          SELECT
+              DATE_TRUNC('{{ period }}', `{{ date_column_name }}`) AS metric_period,
+              {%- if group_by %}
+                  {%- if group_by is string -%}
+                      `{{ group_by }}`,
+                  {%- else -%}
+                      {{ group_by | map('regex_replace', '^(.*)$', '`\\1`') | join(', ') }},
+                  {%- endif %}
+              {%- endif %}
+              SUM(`{{ column_name }}`) AS agg_metric_value
+          FROM {{ this }}
+          GROUP BY 
+              DATE_TRUNC('{{ period }}', `{{ date_column_name }}`)
+              {%- if group_by %}
+                  , 
+                  {%- if group_by is string -%}
+                      `{{ group_by }}`
+                  {%- else -%}
+                      {{ group_by | map('regex_replace', '^(.*)$', '`\\1`') | join(', ') }}
+                  {%- endif %}
+              {%- endif %}
+      )
+      {%- if take_diffs %}
+      , grouped_metric_values_with_priors AS (
+          SELECT
+              *,
+              LAG(agg_metric_value, {{ lookback_periods }}) OVER (
+                  {{ partition_by }}
+                  ORDER BY metric_period
+              ) AS prior_agg_metric_value
+          FROM grouped_metric_values
+      )
+      SELECT
+          *,
+          CASE 
+              WHEN {{ take_logs }} THEN
+                  COALESCE(LOG(NULLIF(agg_metric_value, 0)), 0) -
+                  COALESCE(LOG(NULLIF(prior_agg_metric_value, 0)), 0)
+              ELSE
+                  agg_metric_value - COALESCE(prior_agg_metric_value, 0)
+          END AS metric_test_value
+      FROM grouped_metric_values_with_priors
+      {%- else %}
+      SELECT
+          *,
+          CASE 
+              WHEN {{ take_logs }} THEN
+                  COALESCE(LOG(NULLIF(agg_metric_value, 0)), 0)
+              ELSE
+                  agg_metric_value
+          END AS metric_test_value
+      FROM grouped_metric_values
+      {%- endif %}
+  ),
+  metric_moving_calcs AS (
+      SELECT
+          *,
+          AVG(metric_test_value) OVER (
+              {{ partition_by }}
+              ORDER BY metric_period 
+              ROWS BETWEEN {{ trend_periods }} PRECEDING AND 1 PRECEDING
+          ) AS rolling_avg,
+          STDDEV(metric_test_value) OVER (
+              {{ partition_by }}
+              ORDER BY metric_period 
+              ROWS BETWEEN {{ trend_periods }} PRECEDING AND 1 PRECEDING
+          ) AS rolling_stddev
+      FROM metric_values
+  ),
+  metric_sigma AS (
+      SELECT
+          *,
+          (metric_test_value - rolling_avg) / NULLIF(rolling_stddev, 0) AS z_score
+      FROM metric_moving_calcs
+  )
+  SELECT *
+  FROM metric_sigma
+  WHERE 
+      metric_period >= CAST(
+          DATEADD({{ period }}, -{{ test_periods }}, DATE_TRUNC('{{ period }}', CURRENT_TIMESTAMP())) AS TIMESTAMP
+      )
+      AND metric_period < DATE_TRUNC('{{ period }}', CURRENT_TIMESTAMP()) 
+      AND NOT (
+          z_score >= {{ sigma_threshold_lower }} AND
+          z_score <= {{ sigma_threshold_upper }}
+      )
+  {% endmacro %}
+
+  {% macro expect_row_values_to_have_recent_data(column_name, datePart1, interval, row_condition=None) %}
+  {%- set default_start_date = '1970-01-01' -%}
+
+  WITH max_recency AS (
+      SELECT 
+          MAX(`{{ column_name }}`) AS max_timestamp
+      FROM {{ this }}
+      WHERE `{{ column_name }}` <= CURRENT_TIMESTAMP()
+          {%- if row_condition %}
+          AND {{ row_condition }}
+          {%- endif %}
+  )
+  SELECT *
+  FROM max_recency
+  WHERE COALESCE(max_timestamp, TIMESTAMP('{{ default_start_date }}'))
+        < DATEADD({{ datePart1 }}, -{{ interval }}, CURRENT_TIMESTAMP())
+  {% endmacro %}
+
+  {% macro expect_table_aggregation_to_equal_other_table(
+      expression,
+      compare_model,
+      compare_expression=None,
+      group_by=None,
+      compare_group_by=None,
+      row_condition=None,
+      compare_row_condition=None,
+      tolerance=0.0,
+      tolerance_percent=None
+  ) %}
+
+      {%- set expression_1 = expression -%}
+      {%- set expression_2 = compare_expression if compare_expression else expression -%}
+
+      WITH aggregated_model AS (
+          SELECT
+              {% if group_by %}
+                  {{ group_by | join(", ") }},
+              {% endif %}
+              {{ expression_1 }} AS agg_expr
+          FROM {{ this }}
+          {% if row_condition %}
+          WHERE {{ row_condition }}
+          {% endif %}
+          {% if group_by %}
+          GROUP BY {{ group_by | join(", ") }}
+          {% endif %}
+      ),
+      aggregated_compare_model AS (
+          SELECT
+              {% if compare_group_by %}
+                  {{ compare_group_by | join(", ") }},
+              {% endif %}
+              {{ expression_2 }} AS compare_agg_expr
+          FROM {{ compare_model }}
+          {% if compare_row_condition %}
+          WHERE {{ compare_row_condition }}
+          {% endif %}
+          {% if compare_group_by %}
+          GROUP BY {{ compare_group_by | join(", ") }}
+          {% endif %}
+      )
+      SELECT
+          a.*,
+          b.compare_agg_expr,
+          ABS(a.agg_expr - b.compare_agg_expr) AS diff,
+          CASE
+              {% if tolerance_percent is not none %}
+                  WHEN a.agg_expr IS NULL OR b.compare_agg_expr IS NULL THEN FALSE
+                  ELSE ABS(a.agg_expr - b.compare_agg_expr) / NULLIF(a.agg_expr, 0) * 100 <= {{ tolerance_percent }}
+              {% elif tolerance is not none %}
+                  WHEN a.agg_expr IS NULL OR b.compare_agg_expr IS NULL THEN FALSE
+                  ELSE ABS(a.agg_expr - b.compare_agg_expr) <= {{ tolerance }}
+              {% else %}
+                  WHEN a.agg_expr IS NULL OR b.compare_agg_expr IS NULL THEN FALSE
+                  ELSE ABS(a.agg_expr - b.compare_agg_expr) = 0
+              {% endif %}
+          END AS is_equal
+      FROM aggregated_model a
+      INNER JOIN aggregated_compare_model b
+          {% if group_by and compare_group_by %}
+              ON {% for col, col2 in zip(group_by, compare_group_by) %}
+                     a.{{ col }} = b.{{ col2 }}
+                     {% if not loop.last %} AND {% endif %}
+                 {% endfor %}
+          {% else %}
+              ON 1=1
+          {% endif %}
+      WHERE NOT is_equal
+
+  {% endmacro %}
+
+
+  {% macro expect_row_values_to_have_recent_data(
+      column_name,
+      datepart,
+      interval,
+      row_condition=None,
+      default_start_date='1970-01-01'
+  ) %}
+  WITH max_recency AS (
+      SELECT MAX(`{{ column_name }}`) AS max_timestamp
+      FROM {{ this }}
+      WHERE `{{ column_name }}` <= CURRENT_TIMESTAMP()
+          {%- if row_condition %}
+          AND {{ row_condition }}
+          {%- endif %}
+  )
+  SELECT *
+  FROM max_recency
+  WHERE COALESCE(max_timestamp, CAST('{{ default_start_date }}' AS TIMESTAMP))
+        < DATEADD({{ datepart }}, -{{ interval }}, CURRENT_TIMESTAMP())
+  {% endmacro %}
+
+
+  {% macro expect_grouped_row_values_to_have_recent_data(
+      group_by,
+      timestamp_column,
+      datepart,
+      interval,
+      filterCondition=None
+  ) %}
+  WITH latest_grouped_timestamps AS (
+      SELECT
+          {% if group_by %}
+              {{ group_by | map('regex_replace', '^(.*)$', '`\\1`') | join(', ') }},
+          {% endif %}
+          MAX(CAST(`{{ timestamp_column }}` AS TIMESTAMP)) AS latest_timestamp_column
+      FROM {{ this }}
+      WHERE CAST(`{{ timestamp_column }}` AS TIMESTAMP) <= CURRENT_TIMESTAMP()
+          {% if filterCondition %}
+          AND {{ filterCondition }}
+          {% endif %}
+      {% if group_by %}
+      GROUP BY {{ group_by | map('regex_replace', '^(.*)$', '`\\1`') | join(', ') }}
+      {% endif %}
+  ),
+  outdated_grouped_timestamps AS (
+      SELECT *
+      FROM latest_grouped_timestamps
+      WHERE latest_timestamp_column < DATEADD({{ datepart }}, -{{ interval }}, CURRENT_TIMESTAMP())
+  )
+  SELECT
+      {% if group_by %}
+          {{ group_by | map('regex_replace', '^(.*)$', '`\\1`') | join(', ') }},
+      {% endif %}
+      latest_timestamp_column
+  FROM outdated_grouped_timestamps
+  {% endmacro %}
+
+
+  {% macro expect_table_columns_to_match_ordered_list(column_list, transform="UPPER") %}
+
+      {# Convert comma-separated string to list if needed #}
+      {%- if column_list is string -%}
+          {%- set column_list = column_list.split(',') | map('trim') | list -%}
+      {%- endif -%}
+
+      {% set srcSchName = node.location.name %}
+      {% set table_catalog1 = storageLocations | selectattr('name', 'equalto', srcSchName) | map(attribute='database') | first %}
+      {% set table_schema1 = storageLocations | selectattr('name', 'equalto', srcSchName) | map(attribute='schema') | first %}
+      {% set table_name1 = node.name %}
+
+      WITH relation_columns AS (
+          SELECT
+              ordinal_position AS relation_column_idx,
+              {{ transform }}(column_name) AS relation_column
+          FROM system.information_schema.columns
+          WHERE table_schema = '{{ table_schema1 }}'
+            AND table_name = '{{ table_name1 }}'
+          ORDER BY ordinal_position
+      ),
+      input_columns AS (
+          SELECT
+              idx + 1 AS input_column_idx,
+              {{ transform }}(col_name) AS input_column
+          FROM (
+              SELECT posexplode(array(
+                  {% for col in column_list %}
+                      '{{ col }}'{% if not loop.last %}, {% endif %}
+                  {% endfor %}
+              )) AS (idx, col_name)
+          )
+      )
+      SELECT *
+      FROM relation_columns r
+      FULL OUTER JOIN input_columns i
+        ON r.relation_column = i.input_column
+       AND r.relation_column_idx = i.input_column_idx
+      WHERE r.relation_column IS NULL OR i.input_column IS NULL
+
+  {% endmacro %}
+
+  {% macro expect_column_values_to_have_consistent_casing(column_name, display_inconsistent_columns=False) %}
+
+  WITH test_data AS (
+      SELECT DISTINCT "{{ column_name }}" AS distinct_values
+      FROM {{ this }}
+  ),
+
+  {% if display_inconsistent_columns %}
+  validation_errors AS (
+      SELECT
+          LOWER(distinct_values) AS inconsistent_column,
+          COUNT(distinct_values) AS case_sensitive_count
+      FROM test_data
+      GROUP BY LOWER(distinct_values)
+      HAVING COUNT(distinct_values) > 1
+  )
+
+  SELECT *
+  FROM validation_errors
+
+  {% else %}
+  validation_summary AS (
+      SELECT
+          COUNT(*) AS total_count,
+          COUNT(DISTINCT LOWER(distinct_values)) AS case_insensitive_count
+      FROM test_data
+  ),
+
+  validation_errors AS (
+      SELECT *
+      FROM validation_summary
+      WHERE total_count != case_insensitive_count
+  )
+
+  SELECT *
+  FROM validation_errors
+
+  {% endif %}
+
+  {% endmacro %}
+
+  {% macro expect_column_most_common_value_to_be_in_set(
+      column_name, 
+      value_set, 
+      top_n, 
+      quote_values=True, 
+      data_type="STRING", 
+      filterCondition=None
+  ) %}
+
+  WITH value_counts AS (
+      SELECT
+          {%- if quote_values -%}
+              "{{ column_name }}"
+          {%- else -%}
+              CAST("{{ column_name }}" AS {{ data_type }})
+          {%- endif %} AS value_field,
+          COUNT(*) AS value_count
+      FROM {{ this }}
+      {%- if filterCondition %}
+          WHERE {{ filterCondition }}
+      {%- endif %}
+      GROUP BY 
+          {%- if quote_values -%}
+              "{{ column_name }}"
+          {%- else -%}
+              CAST("{{ column_name }}" AS {{ data_type }})
+          {%- endif %}
+  ),
+
+  value_counts_ranked AS (
+      SELECT
+          value_field,
+          value_count,
+          ROW_NUMBER() OVER (ORDER BY value_count DESC) AS value_count_rank
+      FROM value_counts
+  ),
+
+  value_count_top_n AS (
+      SELECT value_field
+      FROM value_counts_ranked
+      WHERE value_count_rank <= {{ top_n }}
+  ),
+
+  set_values AS (
+      {% for value in value_set -%}
+          SELECT 
+              {%- if quote_values -%}
+                  '{{ value }}'
+              {%- else -%}
+                  CAST({{ value }} AS {{ data_type }})
+              {%- endif %} AS value_field
+          {%- if not loop.last %} UNION ALL {% endif %}
+      {% endfor %}
+  ),
+
+  unique_set_values AS (
+      SELECT DISTINCT value_field
+      FROM set_values
+  ),
+
+  validation_errors AS (
+      SELECT value_field
+      FROM value_count_top_n
+      WHERE value_field NOT IN (SELECT value_field FROM unique_set_values)
+  )
+
+  SELECT *
+  FROM validation_errors
+
+  {% endmacro %}
+
+
+  {#-- Missing days range #}
+  {#-- Eg {{ test_missing_dates("O_ORDERDATE", "1995-01-01", "1996-01-01") }} #}
+  {%- macro test_missing_dates(date_column, start_date, end_date) -%}
+  WITH all_dates AS (
+      SELECT explode(sequence(to_date('{{ start_date }}'), to_date('{{ end_date }}'), interval 1 day)) AS dt
+  ),
+  existing_dates AS (
+      SELECT to_date("{{ date_column }}") AS dt, COUNT(*) AS cnt
+      FROM {{ this }}
+      GROUP BY to_date("{{ date_column }}")
+  )
+  SELECT dt
+  FROM all_dates a
+  LEFT JOIN existing_dates b
+      ON a.dt = b.dt
+  WHERE COALESCE(b.cnt, 0) = 0
+  {%- endmacro -%}
+
+  {#-- Missing days range CURRENT_DATE offset #}
+  {#-- Eg {{ test_missing_date_offset("O_ORDERDATE", 100, 1) }} #}
+  {%- macro test_missing_date_offset(date_column, from_offset, to_offset) -%}
+  WITH date_range AS (
+      SELECT explode(
+          sequence(
+              current_date() - INTERVAL {{ from_offset }} DAYS,
+              current_date() - INTERVAL {{ to_offset }} DAYS,
+              INTERVAL 1 DAY
+          )
+      ) AS dt
+  ),
+  existing_dates AS (
+      SELECT to_date("{{ date_column }}") AS dt, COUNT(*) AS cnt
+      FROM {{ this }}
+      GROUP BY to_date("{{ date_column }}")
+  )
+  SELECT dt
+  FROM date_range d
+  LEFT JOIN existing_dates e
+      ON d.dt = e.dt
+  WHERE COALESCE(e.cnt, 0) = 0
+  {%- endmacro -%}
+
+  ----------------------------------------------------------------------------------------------------------------------------------
+name: macro
+type: Macro
