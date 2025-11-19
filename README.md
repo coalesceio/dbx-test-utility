@@ -1,4 +1,4 @@
-<h1 align="center">test-utility</h1>
+<h1 align="center">Test-Utility</h1>
 <p align="center">
 </p>
 
@@ -13,7 +13,7 @@
 
 ## About
 
-`test-utility` is an extension package for [**Coalesce**], inspired by the [Great Expectations package for Python](https://greatexpectations.io/). The intent is to allow Coalesce users to deploy GE-like tests in their data warehouse directly from Coalesce, vs having to add another integration with their data warehouse.
+`Test-Utility` is an extension package for [**Coalesce**], inspired by the [Great Expectations package for Python](https://greatexpectations.io/). The intent is to allow Coalesce users to deploy GE-like tests in their data warehouse directly from Coalesce, vs having to add another integration with their data warehouse.
 
 
 ## How to use?
